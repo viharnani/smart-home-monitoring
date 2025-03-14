@@ -1,97 +1,94 @@
 import { User, DeviceReading, Alert, InsertUser } from "@shared/schema";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
 import session from "express-session";
-import createMemoryStore from "memorystore";
+import connectPg from "connect-pg-simple";
+import { pool } from "./db";
+import { users, deviceReadings, alerts } from "@shared/schema";
 
-const MemoryStore = createMemoryStore(session);
+const PostgresSessionStore = connectPg(session);
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUserBudget(userId: number, budget: number): Promise<void>;
-  
+
   addDeviceReading(reading: Omit<DeviceReading, "id">): Promise<DeviceReading>;
   getDeviceReadings(userId: number, limit?: number): Promise<DeviceReading[]>;
-  
+
   createAlert(alert: Omit<Alert, "id">): Promise<Alert>;
   getAlerts(userId: number): Promise<Alert[]>;
   markAlertRead(alertId: number): Promise<void>;
-  
-  sessionStore: session.SessionStore;
+
+  sessionStore: session.Store;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<number, User>;
-  private deviceReadings: Map<number, DeviceReading>;
-  private alerts: Map<number, Alert>;
-  sessionStore: session.SessionStore;
-  private currentIds: { user: number; reading: number; alert: number };
+export class DatabaseStorage implements IStorage {
+  sessionStore: session.Store;
 
   constructor() {
-    this.users = new Map();
-    this.deviceReadings = new Map();
-    this.alerts = new Map();
-    this.currentIds = { user: 1, reading: 1, alert: 1 };
-    this.sessionStore = new MemoryStore({ checkPeriod: 86400000 });
+    this.sessionStore = new PostgresSessionStore({
+      pool,
+      createTableIfMissing: true,
+    });
   }
 
   async getUser(id: number): Promise<User | undefined> {
-    return this.users.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = this.currentIds.user++;
-    const user: User = { ...insertUser, id, energyBudget: 0 };
-    this.users.set(id, user);
+    const [user] = await db.insert(users).values(insertUser).returning();
     return user;
   }
 
   async updateUserBudget(userId: number, budget: number): Promise<void> {
-    const user = await this.getUser(userId);
-    if (!user) throw new Error("User not found");
-    user.energyBudget = budget;
-    this.users.set(userId, user);
+    await db.update(users)
+      .set({ energyBudget: budget })
+      .where(eq(users.id, userId));
   }
 
   async addDeviceReading(reading: Omit<DeviceReading, "id">): Promise<DeviceReading> {
-    const id = this.currentIds.reading++;
-    const newReading = { ...reading, id };
-    this.deviceReadings.set(id, newReading);
+    const [newReading] = await db.insert(deviceReadings)
+      .values(reading)
+      .returning();
     return newReading;
   }
 
   async getDeviceReadings(userId: number, limit = 100): Promise<DeviceReading[]> {
-    return Array.from(this.deviceReadings.values())
-      .filter(reading => reading.userId === userId)
-      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-      .slice(0, limit);
+    return await db.select()
+      .from(deviceReadings)
+      .where(eq(deviceReadings.userId, userId))
+      .orderBy(deviceReadings.timestamp)
+      .limit(limit);
   }
 
   async createAlert(alert: Omit<Alert, "id">): Promise<Alert> {
-    const id = this.currentIds.alert++;
-    const newAlert = { ...alert, id };
-    this.alerts.set(id, newAlert);
+    const [newAlert] = await db.insert(alerts)
+      .values(alert)
+      .returning();
     return newAlert;
   }
 
   async getAlerts(userId: number): Promise<Alert[]> {
-    return Array.from(this.alerts.values())
-      .filter(alert => alert.userId === userId)
-      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    return await db.select()
+      .from(alerts)
+      .where(eq(alerts.userId, userId))
+      .orderBy(alerts.timestamp);
   }
 
   async markAlertRead(alertId: number): Promise<void> {
-    const alert = this.alerts.get(alertId);
-    if (!alert) throw new Error("Alert not found");
-    alert.isRead = true;
-    this.alerts.set(alertId, alert);
+    await db.update(alerts)
+      .set({ isRead: true })
+      .where(eq(alerts.id, alertId));
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();

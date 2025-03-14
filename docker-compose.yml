@@ -1,0 +1,93 @@
+version: '3'
+
+services:
+  device-service:
+    build: ./services/device-service
+    ports:
+      - "3001:3001"
+    environment:
+      - MQTT_BROKER_URL=mqtt://mqtt-broker:1883
+      - MONGODB_URI=mongodb+srv://atlas-cluster
+      - AWS_LAMBDA_ENDPOINT=http://localstack:4566
+      - AWS_REGION=us-east-1
+    depends_on:
+      - mqtt-broker
+      - localstack
+
+  user-service:
+    build: ./services/user-service
+    ports:
+      - "3002:3002"
+    environment:
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - JWT_SECRET=${JWT_SECRET}
+      - MONGODB_URI=mongodb+srv://atlas-cluster
+    depends_on:
+      - mongodb
+
+  data-service:
+    build: ./services/data-service
+    ports:
+      - "3003:3003"
+    environment:
+      - MONGODB_URI=mongodb+srv://atlas-cluster
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - mongodb
+
+  alert-service:
+    build: ./services/alert-service
+    ports:
+      - "3004:3004"
+    environment:
+      - MONGODB_URI=mongodb+srv://atlas-cluster
+      - AWS_LAMBDA_ENDPOINT=http://localstack:4566
+      - AWS_REGION=us-east-1
+      - SNS_TOPIC_ARN=arn:aws:sns:us-east-1:000000000000:energy-alerts
+    depends_on:
+      - mongodb
+      - localstack
+
+  api-gateway:
+    image: nginx:alpine
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - device-service
+      - user-service
+      - data-service
+      - alert-service
+
+  mqtt-broker:
+    image: eclipse-mosquitto:latest
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=lambda,sns,apigateway
+      - DEBUG=1
+      - DEFAULT_REGION=us-east-1
+    volumes:
+      - ./localstack:/docker-entrypoint-initaws.d
+
+volumes:
+  mongodb_data:
