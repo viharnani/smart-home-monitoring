@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { WebSocketServer } from "ws";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
+import { PredictionService } from "./services/prediction-service";
 
 function generateMockReading(userId: number) {
   return {
@@ -30,6 +31,57 @@ async function checkEnergyBudget(userId: number, consumption: number) {
   }
 }
 
+async function checkDeviceThresholds(userId: number, deviceId: string, consumption: number) {
+  const thresholds = await storage.getDeviceThresholds(userId, deviceId);
+  if (!thresholds.length) return;
+
+  const threshold = thresholds[0];
+  const now = new Date();
+  const startOfDay = new Date(now.setHours(0, 0, 0, 0));
+  const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
+  const startOfMonth = new Date(now.setDate(1));
+
+  const dailyReadings = await storage.getDeviceReadingsByTimeRange(userId, deviceId, startOfDay, now);
+  const dailyTotal = dailyReadings.reduce((sum, r) => sum + r.consumption, 0) + consumption;
+
+  if (dailyTotal > threshold.dailyThreshold) {
+    await storage.createAlert({
+      userId,
+      message: `Device ${deviceId} has exceeded daily threshold of ${threshold.dailyThreshold} kWh`,
+      timestamp: new Date(),
+      isRead: false
+    });
+  }
+
+  if (threshold.weeklyThreshold) {
+    const weeklyReadings = await storage.getDeviceReadingsByTimeRange(userId, deviceId, startOfWeek, now);
+    const weeklyTotal = weeklyReadings.reduce((sum, r) => sum + r.consumption, 0) + consumption;
+
+    if (weeklyTotal > threshold.weeklyThreshold) {
+      await storage.createAlert({
+        userId,
+        message: `Device ${deviceId} has exceeded weekly threshold of ${threshold.weeklyThreshold} kWh`,
+        timestamp: new Date(),
+        isRead: false
+      });
+    }
+  }
+
+  if (threshold.monthlyThreshold) {
+    const monthlyReadings = await storage.getDeviceReadingsByTimeRange(userId, deviceId, startOfMonth, now);
+    const monthlyTotal = monthlyReadings.reduce((sum, r) => sum + r.consumption, 0) + consumption;
+
+    if (monthlyTotal > threshold.monthlyThreshold) {
+      await storage.createAlert({
+        userId,
+        message: `Device ${deviceId} has exceeded monthly threshold of ${threshold.monthlyThreshold} kWh`,
+        timestamp: new Date(),
+        isRead: false
+      });
+    }
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
 
@@ -51,7 +103,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (ws.readyState === ws.OPEN && userId) {
               const reading = generateMockReading(userId);
               const savedReading = await storage.addDeviceReading(reading);
+              await checkDeviceThresholds(userId, reading.deviceId, reading.consumption);
               await checkEnergyBudget(userId, reading.consumption);
+
+              // Generate prediction every hour
+              if (new Date().getMinutes() === 0) {
+                const prediction = await PredictionService.generatePrediction(userId, reading.deviceId);
+                await storage.savePrediction({
+                  userId,
+                  deviceId: reading.deviceId,
+                  predictedConsumption: prediction.predictedConsumption,
+                  confidence: prediction.confidence,
+                  recommendations: prediction.recommendations,
+                  timestamp: new Date()
+                });
+              }
+
               ws.send(JSON.stringify({ type: 'reading', data: savedReading }));
             }
           }, 5000);
@@ -66,7 +133,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  // API Routes
+  // Device Thresholds API
+  app.post('/api/devices/:deviceId/thresholds', async (req, res) => {
+    try {
+      const { deviceId } = req.params;
+      const threshold = await storage.setDeviceThreshold({
+        userId: parseInt(req.user!.id.toString()),
+        deviceId,
+        ...req.body
+      });
+      res.json(threshold);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to set device threshold' });
+    }
+  });
+
+  app.get('/api/devices/thresholds', async (req, res) => {
+    try {
+      const thresholds = await storage.getDeviceThresholds(parseInt(req.user!.id.toString()));
+      res.json(thresholds);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get device thresholds' });
+    }
+  });
+
+  // Predictions API
+  app.get('/api/devices/:deviceId/predictions', async (req, res) => {
+    try {
+      const { deviceId } = req.params;
+      const predictions = await storage.getLatestPredictions(
+        parseInt(req.user!.id.toString()),
+        deviceId
+      );
+      res.json(predictions);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to get predictions' });
+    }
+  });
+
   app.get('/api/readings/:userId', async (req, res) => {
     const readings = await storage.getDeviceReadings(parseInt(req.params.userId));
     res.json(readings);

@@ -1,10 +1,10 @@
-import { User, DeviceReading, Alert, InsertUser } from "@shared/schema";
+import { User, DeviceReading, Alert, InsertUser, DeviceThreshold, Prediction } from "@shared/schema";
 import { db } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, and, gte, lte } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
-import { users, deviceReadings, alerts } from "@shared/schema";
+import { users, deviceReadings, alerts, deviceThresholds, predictions } from "@shared/schema";
 
 const PostgresSessionStore = connectPg(session);
 
@@ -16,10 +16,24 @@ export interface IStorage {
 
   addDeviceReading(reading: Omit<DeviceReading, "id">): Promise<DeviceReading>;
   getDeviceReadings(userId: number, limit?: number): Promise<DeviceReading[]>;
+  getDeviceReadingsByTimeRange(
+    userId: number,
+    deviceId: string,
+    startDate: Date,
+    endDate: Date
+  ): Promise<DeviceReading[]>;
 
   createAlert(alert: Omit<Alert, "id">): Promise<Alert>;
   getAlerts(userId: number): Promise<Alert[]>;
   markAlertRead(alertId: number): Promise<void>;
+
+  // New methods for device thresholds
+  setDeviceThreshold(threshold: Omit<DeviceThreshold, "id" | "createdAt">): Promise<DeviceThreshold>;
+  getDeviceThresholds(userId: number, deviceId?: string): Promise<DeviceThreshold[]>;
+
+  // New methods for predictions
+  savePrediction(prediction: Omit<Prediction, "id">): Promise<Prediction>;
+  getLatestPredictions(userId: number, deviceId?: string): Promise<Prediction[]>;
 
   sessionStore: session.Store;
 }
@@ -70,6 +84,23 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
+  async getDeviceReadingsByTimeRange(
+    userId: number,
+    deviceId: string,
+    startDate: Date,
+    endDate: Date
+  ): Promise<DeviceReading[]> {
+    return await db.select()
+      .from(deviceReadings)
+      .where(and(
+        eq(deviceReadings.userId, userId),
+        eq(deviceReadings.deviceId, deviceId),
+        gte(deviceReadings.timestamp, startDate),
+        lte(deviceReadings.timestamp, endDate)
+      ))
+      .orderBy(deviceReadings.timestamp);
+  }
+
   async createAlert(alert: Omit<Alert, "id">): Promise<Alert> {
     const [newAlert] = await db.insert(alerts)
       .values(alert)
@@ -88,6 +119,41 @@ export class DatabaseStorage implements IStorage {
     await db.update(alerts)
       .set({ isRead: true })
       .where(eq(alerts.id, alertId));
+  }
+
+  async setDeviceThreshold(threshold: Omit<DeviceThreshold, "id" | "createdAt">): Promise<DeviceThreshold> {
+    const [newThreshold] = await db.insert(deviceThresholds)
+      .values(threshold)
+      .returning();
+    return newThreshold;
+  }
+
+  async getDeviceThresholds(userId: number, deviceId?: string): Promise<DeviceThreshold[]> {
+    let query = db.select().from(deviceThresholds).where(eq(deviceThresholds.userId, userId));
+    if (deviceId) {
+      query = query.where(eq(deviceThresholds.deviceId, deviceId));
+    }
+    return await query;
+  }
+
+  async savePrediction(prediction: Omit<Prediction, "id">): Promise<Prediction> {
+    const [newPrediction] = await db.insert(predictions)
+      .values(prediction)
+      .returning();
+    return newPrediction;
+  }
+
+  async getLatestPredictions(userId: number, deviceId?: string): Promise<Prediction[]> {
+    let query = db.select()
+      .from(predictions)
+      .where(eq(predictions.userId, userId))
+      .orderBy(predictions.timestamp);
+
+    if (deviceId) {
+      query = query.where(eq(predictions.deviceId, deviceId));
+    }
+
+    return await query.limit(10);
   }
 }
 

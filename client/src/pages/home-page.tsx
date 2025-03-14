@@ -18,15 +18,23 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function HomePage() {
   const { user, logoutMutation } = useAuth();
-  const { readings, alerts, latestReading, updateBudget, markAlertRead } = useEnergyData(user!.id);
+  const { readings, alerts, latestReading, predictions, thresholds, updateBudget, setDeviceThreshold, markAlertRead } = useEnergyData(user!.id);
   const [newBudget, setNewBudget] = useState("");
+  const [newThreshold, setNewThreshold] = useState({
+    deviceId: "",
+    dailyThreshold: 0,
+    weeklyThreshold: 0,
+    monthlyThreshold: 0
+  });
 
   const chartData = readings.map((reading) => ({
     time: new Date(reading.timestamp).toLocaleTimeString(),
     consumption: reading.consumption,
+    predicted: predictions.find(p => p.deviceId === reading.deviceId)?.predictedConsumption || null
   }));
 
   const totalConsumption = readings.reduce((sum, r) => sum + r.consumption, 0);
+  const latestPrediction = predictions[0];
 
   return (
     <div className="min-h-screen bg-background">
@@ -106,6 +114,124 @@ export default function HomePage() {
           </Card>
         </div>
 
+        {/* Predictions and Recommendations */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Energy Predictions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {latestPrediction ? (
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Predicted Consumption</p>
+                    <p className="text-2xl font-bold">{latestPrediction.predictedConsumption.toFixed(2)} kWh</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Confidence</p>
+                    <p className="text-2xl font-bold">{(latestPrediction.confidence * 100).toFixed(1)}%</p>
+                  </div>
+                </div>
+                <div>
+                  <p className="font-medium mb-2">Recommendations:</p>
+                  <ul className="space-y-2">
+                    {latestPrediction.recommendations.map((rec, index) => (
+                      <li key={index} className="flex items-start gap-2 p-2 bg-muted/50 rounded-lg">
+                        <AlertCircle className="h-5 w-5 text-primary mt-0.5" />
+                        <div>
+                          <p className="font-medium">{rec.type}</p>
+                          <p className="text-sm text-muted-foreground">{rec.message}</p>
+                          <p className="text-sm text-primary">Potential Savings: {rec.potentialSavings.toFixed(2)} kWh</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ) : (
+              <p className="text-muted-foreground">No predictions available yet</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Device Thresholds */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Device Thresholds</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="grid gap-4">
+                <div>
+                  <label className="text-sm font-medium">Device ID</label>
+                  <Input
+                    value={newThreshold.deviceId}
+                    onChange={(e) => setNewThreshold(prev => ({ ...prev, deviceId: e.target.value }))}
+                    placeholder="Enter device ID"
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div>
+                    <label className="text-sm font-medium">Daily Threshold (kWh)</label>
+                    <Input
+                      type="number"
+                      value={newThreshold.dailyThreshold}
+                      onChange={(e) => setNewThreshold(prev => ({ ...prev, dailyThreshold: parseFloat(e.target.value) }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Weekly Threshold (kWh)</label>
+                    <Input
+                      type="number"
+                      value={newThreshold.weeklyThreshold}
+                      onChange={(e) => setNewThreshold(prev => ({ ...prev, weeklyThreshold: parseFloat(e.target.value) }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">Monthly Threshold (kWh)</label>
+                    <Input
+                      type="number"
+                      value={newThreshold.monthlyThreshold}
+                      onChange={(e) => setNewThreshold(prev => ({ ...prev, monthlyThreshold: parseFloat(e.target.value) }))}
+                    />
+                  </div>
+                </div>
+                <Button
+                  onClick={() => {
+                    if (newThreshold.deviceId && newThreshold.dailyThreshold > 0) {
+                      setDeviceThreshold(newThreshold);
+                      setNewThreshold({
+                        deviceId: "",
+                        dailyThreshold: 0,
+                        weeklyThreshold: 0,
+                        monthlyThreshold: 0
+                      });
+                    }
+                  }}
+                >
+                  Set Thresholds
+                </Button>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-medium mb-2">Current Thresholds</h3>
+                <div className="space-y-2">
+                  {thresholds.map((threshold) => (
+                    <div key={threshold.id} className="p-3 bg-muted/50 rounded-lg">
+                      <p className="font-medium">Device: {threshold.deviceId}</p>
+                      <div className="mt-1 grid gap-2 sm:grid-cols-3">
+                        <p className="text-sm">Daily: {threshold.dailyThreshold} kWh</p>
+                        <p className="text-sm">Weekly: {threshold.weeklyThreshold || 'N/A'} kWh</p>
+                        <p className="text-sm">Monthly: {threshold.monthlyThreshold || 'N/A'} kWh</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="mt-6">
           <CardHeader>
             <CardTitle>Consumption History</CardTitle>
@@ -124,6 +250,15 @@ export default function HomePage() {
                     stroke="hsl(var(--primary))"
                     strokeWidth={2}
                   />
+                  {predictions.length > 0 && (
+                    <Line
+                      type="monotone"
+                      dataKey="predicted"
+                      stroke="hsl(var(--primary)/0.5)"
+                      strokeDasharray="5 5"
+                      strokeWidth={2}
+                    />
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             </div>
