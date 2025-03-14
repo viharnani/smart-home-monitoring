@@ -191,7 +191,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  // Device Thresholds API
+  // API Routes
   app.post('/api/devices/:deviceId/thresholds', async (req, res) => {
     try {
       const { deviceId } = req.params;

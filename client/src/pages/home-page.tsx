@@ -145,24 +145,24 @@ export default function HomePage() {
                     <label className="text-sm font-medium">Daily Threshold (kWh)</label>
                     <Input
                       type="number"
-                      value={newThreshold.dailyThreshold}
-                      onChange={(e) => setNewThreshold(prev => ({ ...prev, dailyThreshold: parseFloat(e.target.value) }))}
+                      value={newThreshold.dailyThreshold || ""}
+                      onChange={(e) => setNewThreshold(prev => ({ ...prev, dailyThreshold: parseFloat(e.target.value) || 0 }))}
                     />
                   </div>
                   <div>
                     <label className="text-sm font-medium">Weekly Threshold (kWh)</label>
                     <Input
                       type="number"
-                      value={newThreshold.weeklyThreshold}
-                      onChange={(e) => setNewThreshold(prev => ({ ...prev, weeklyThreshold: parseFloat(e.target.value) }))}
+                      value={newThreshold.weeklyThreshold || ""}
+                      onChange={(e) => setNewThreshold(prev => ({ ...prev, weeklyThreshold: parseFloat(e.target.value) || 0 }))}
                     />
                   </div>
                   <div>
                     <label className="text-sm font-medium">Monthly Threshold (kWh)</label>
                     <Input
                       type="number"
-                      value={newThreshold.monthlyThreshold}
-                      onChange={(e) => setNewThreshold(prev => ({ ...prev, monthlyThreshold: parseFloat(e.target.value) }))}
+                      value={newThreshold.monthlyThreshold || ""}
+                      onChange={(e) => setNewThreshold(prev => ({ ...prev, monthlyThreshold: parseFloat(e.target.value) || 0 }))}
                     />
                   </div>
                 </div>

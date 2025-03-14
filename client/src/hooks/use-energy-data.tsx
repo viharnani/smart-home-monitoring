@@ -61,13 +61,6 @@ export function useEnergyData(userId: number) {
         description: "Failed to connect to real-time updates. Retrying...",
         variant: "destructive",
       });
-      // Attempt to reconnect after a delay
-      setTimeout(() => {
-        if (ws.readyState === WebSocket.CLOSED) {
-          ws.close();
-          setSocket(null);
-        }
-      }, 5000);
     };
 
     setSocket(ws);
