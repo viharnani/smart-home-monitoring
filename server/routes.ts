@@ -8,10 +8,11 @@ import session from "express-session";
 import { parse } from "cookie";
 
 function generateMockReading(userId: number) {
+  const consumption = Math.random() * 5 + 1; // 1-6 kWh
   return {
     userId,
     timestamp: new Date(),
-    consumption: Math.random() * 5 + 1, // 1-6 kWh
+    consumption: Number(consumption.toFixed(2)),
     deviceId: `device_${Math.floor(Math.random() * 3) + 1}`, // 3 mock devices
   };
 }
@@ -103,15 +104,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ws.on('message', async (message: string) => {
       try {
         const data = JSON.parse(message.toString());
+        console.log('WebSocket message received:', data);
+
         if (data.type === 'init' && data.userId && data.sessionId) {
           // Verify session using the session store
+          console.log('Verifying session:', data.sessionId);
           const sessionData = await new Promise((resolve) => {
             storage.sessionStore.get(data.sessionId, (err, session) => {
-              resolve(session);
+              if (err) {
+                console.error('Session verification error:', err);
+                resolve(null);
+              } else {
+                console.log('Session data:', session);
+                resolve(session);
+              }
             });
           });
 
           if (!sessionData || !sessionData.passport?.user) {
+            console.log('Session verification failed');
             ws.close(1008, 'Unauthorized');
             return;
           }
@@ -119,6 +130,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Verify user exists and matches session
           const user = await storage.getUser(data.userId);
           if (!user || user.id !== sessionData.passport.user) {
+            console.log('User verification failed');
             ws.close(1008, 'User not found or unauthorized');
             return;
           }
@@ -131,11 +143,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (ws.readyState === WebSocket.OPEN && userId) {
               try {
                 const reading = generateMockReading(userId);
+                console.log('Generated reading:', reading);
+
                 const savedReading = await storage.addDeviceReading(reading);
+                console.log('Saved reading:', savedReading);
+
+                // Send reading before checking thresholds
+                ws.send(JSON.stringify({ type: 'reading', data: savedReading }));
+
                 await checkDeviceThresholds(userId, reading.deviceId, reading.consumption);
                 await checkEnergyBudget(userId, reading.consumption);
 
-                // Generate prediction every hour
+                // Generate prediction if needed
                 if (new Date().getMinutes() === 0) {
                   const prediction = await PredictionService.generatePrediction(userId, reading.deviceId);
                   await storage.savePrediction({
@@ -147,12 +166,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     timestamp: new Date()
                   });
                 }
-
-                ws.send(JSON.stringify({ type: 'reading', data: savedReading }));
               } catch (error) {
                 console.error('Error processing device reading:', error);
-                // Don't close the connection for processing errors
               }
+            } else {
+              console.log('WebSocket not ready or userId not set');
             }
           }, 5000);
         }

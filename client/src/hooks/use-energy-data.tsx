@@ -13,28 +13,36 @@ export function useEnergyData(userId: number) {
 
   useEffect(() => {
     // Only connect WebSocket if we have a valid userId and authenticated user
-    if (!userId || !user) return;
+    if (!userId || !user) {
+      console.log("Waiting for user authentication...");
+      return;
+    }
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    console.log("Connecting to WebSocket:", wsUrl);
+    const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-      console.log("WebSocket connected");
+      console.log("WebSocket connected, sending auth data");
       // Send authentication data with session
       const cookies = document.cookie.split(';');
       const sessionCookie = cookies.find(c => c.trim().startsWith('connect.sid='));
-      ws.send(JSON.stringify({ 
+      const authData = { 
         type: "init", 
         userId,
         sessionId: sessionCookie?.split('=')[1]
-      }));
+      };
+      console.log("Sending auth data:", authData);
+      ws.send(JSON.stringify(authData));
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        console.log("WebSocket received:", data);
         if (data.type === "reading") {
-          console.log("Received new reading:", data.data);
+          console.log("New reading received:", data.data);
           setLatestReading(data.data);
           // Invalidate queries to refresh the data
           queryClient.invalidateQueries({ queryKey: [`/api/readings/${userId}`] });
@@ -66,6 +74,7 @@ export function useEnergyData(userId: number) {
 
     return () => {
       if (ws.readyState === WebSocket.OPEN) {
+        console.log("Closing WebSocket connection");
         ws.close();
       }
     };

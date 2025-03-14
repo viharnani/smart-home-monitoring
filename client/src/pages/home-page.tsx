@@ -33,8 +33,13 @@ export default function HomePage() {
     predicted: predictions.find(p => p.deviceId === reading.deviceId)?.predictedConsumption || null
   }));
 
-  const totalConsumption = readings.reduce((sum, r) => sum + r.consumption, 0);
-  const latestPrediction = predictions[0];
+  const totalConsumption = readings.length > 0 
+    ? readings.reduce((sum, r) => sum + r.consumption, 0).toFixed(2)
+    : "0.00";
+
+  const currentConsumption = latestReading 
+    ? `${latestReading.consumption.toFixed(2)} kWh`
+    : "Connecting...";
 
   return (
     <div className="min-h-screen bg-background">
@@ -67,8 +72,13 @@ export default function HomePage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold">
-                {latestReading ? `${latestReading.consumption.toFixed(2)} kWh` : "N/A"}
+                {currentConsumption}
               </div>
+              {!latestReading && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  Establishing real-time connection...
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -78,7 +88,7 @@ export default function HomePage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold">
-                {totalConsumption.toFixed(2)} kWh
+                {totalConsumption} kWh
               </div>
             </CardContent>
           </Card>
