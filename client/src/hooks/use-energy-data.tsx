@@ -20,7 +20,7 @@ export function useEnergyData(userId: number) {
 
     ws.onopen = () => {
       console.log("WebSocket connected");
-      // Send authentication data with token
+      // Send authentication data with session
       const cookies = document.cookie.split(';');
       const sessionCookie = cookies.find(c => c.trim().startsWith('connect.sid='));
       ws.send(JSON.stringify({ 
@@ -34,8 +34,12 @@ export function useEnergyData(userId: number) {
       try {
         const data = JSON.parse(event.data);
         if (data.type === "reading") {
+          console.log("Received new reading:", data.data);
           setLatestReading(data.data);
+          // Invalidate queries to refresh the data
           queryClient.invalidateQueries({ queryKey: [`/api/readings/${userId}`] });
+          queryClient.invalidateQueries({ queryKey: [`/api/alerts/${userId}`] });
+          queryClient.invalidateQueries({ queryKey: [`/api/devices/thresholds`] });
         }
       } catch (error) {
         console.error("Error processing WebSocket message:", error);
@@ -46,9 +50,16 @@ export function useEnergyData(userId: number) {
       console.error("WebSocket error:", error);
       toast({
         title: "Connection Error",
-        description: "Failed to connect to real-time updates",
+        description: "Failed to connect to real-time updates. Retrying...",
         variant: "destructive",
       });
+      // Attempt to reconnect after a delay
+      setTimeout(() => {
+        if (ws.readyState === WebSocket.CLOSED) {
+          ws.close();
+          setSocket(null);
+        }
+      }, 5000);
     };
 
     setSocket(ws);
