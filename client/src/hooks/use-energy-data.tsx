@@ -3,50 +3,81 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { DeviceReading, Alert, DeviceThreshold, Prediction } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 
 export function useEnergyData(userId: number) {
   const { toast } = useToast();
   const [socket, setSocket] = useState<WebSocket | null>(null);
   const [latestReading, setLatestReading] = useState<DeviceReading | null>(null);
+  const { user } = useAuth();
 
   useEffect(() => {
+    // Only connect WebSocket if we have a valid userId and authenticated user
+    if (!userId || !user) return;
+
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "init", userId }));
+      console.log("WebSocket connected");
+      // Send authentication data with token
+      const cookies = document.cookie.split(';');
+      const sessionCookie = cookies.find(c => c.trim().startsWith('connect.sid='));
+      ws.send(JSON.stringify({ 
+        type: "init", 
+        userId,
+        sessionId: sessionCookie?.split('=')[1]
+      }));
     };
 
     ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === "reading") {
-        setLatestReading(data.data);
-        queryClient.invalidateQueries({ queryKey: [`/api/readings/${userId}`] });
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "reading") {
+          setLatestReading(data.data);
+          queryClient.invalidateQueries({ queryKey: [`/api/readings/${userId}`] });
+        }
+      } catch (error) {
+        console.error("Error processing WebSocket message:", error);
       }
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      toast({
+        title: "Connection Error",
+        description: "Failed to connect to real-time updates",
+        variant: "destructive",
+      });
     };
 
     setSocket(ws);
 
     return () => {
-      ws.close();
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
     };
-  }, [userId]);
+  }, [userId, user, toast]);
 
   const { data: readings = [] } = useQuery<DeviceReading[]>({
     queryKey: [`/api/readings/${userId}`],
+    enabled: !!userId && !!user,
   });
 
   const { data: alerts = [] } = useQuery<Alert[]>({
     queryKey: [`/api/alerts/${userId}`],
+    enabled: !!userId && !!user,
   });
 
   const { data: thresholds = [] } = useQuery<DeviceThreshold[]>({
     queryKey: [`/api/devices/thresholds`],
+    enabled: !!userId && !!user,
   });
 
   const { data: predictions = [] } = useQuery<Prediction[]>({
     queryKey: [`/api/devices/${latestReading?.deviceId}/predictions`],
-    enabled: !!latestReading?.deviceId,
+    enabled: !!userId && !!user && !!latestReading?.deviceId,
   });
 
   const updateBudgetMutation = useMutation({
