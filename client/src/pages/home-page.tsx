@@ -27,6 +27,7 @@ export default function HomePage() {
     monthlyThreshold: 0
   });
 
+  // Safe data transformations
   const chartData = readings.map((reading) => ({
     time: new Date(reading.timestamp).toLocaleTimeString(),
     consumption: reading.consumption,
@@ -124,47 +125,6 @@ export default function HomePage() {
           </Card>
         </div>
 
-        {/* Predictions and Recommendations */}
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle>Energy Predictions</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {latestPrediction ? (
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Predicted Consumption</p>
-                    <p className="text-2xl font-bold">{latestPrediction.predictedConsumption.toFixed(2)} kWh</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Confidence</p>
-                    <p className="text-2xl font-bold">{(latestPrediction.confidence * 100).toFixed(1)}%</p>
-                  </div>
-                </div>
-                <div>
-                  <p className="font-medium mb-2">Recommendations:</p>
-                  <ul className="space-y-2">
-                    {latestPrediction.recommendations.map((rec, index) => (
-                      <li key={index} className="flex items-start gap-2 p-2 bg-muted/50 rounded-lg">
-                        <AlertCircle className="h-5 w-5 text-primary mt-0.5" />
-                        <div>
-                          <p className="font-medium">{rec.type}</p>
-                          <p className="text-sm text-muted-foreground">{rec.message}</p>
-                          <p className="text-sm text-primary">Potential Savings: {rec.potentialSavings.toFixed(2)} kWh</p>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            ) : (
-              <p className="text-muted-foreground">No predictions available yet</p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Device Thresholds */}
         <Card className="mt-6">
           <CardHeader>
             <CardTitle>Device Thresholds</CardTitle>
